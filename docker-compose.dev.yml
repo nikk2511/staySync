@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7
+    container_name: musicapp-mongo-dev
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: musicapp
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_dev_data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - musicapp-dev-network
+
+  # Redis (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: musicapp-redis-dev
+    restart: unless-stopped
+    command: redis-server --requirepass redis123
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - musicapp-dev-network
+
+  # Backend (Development mode with hot reload)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      target: development
+    container_name: musicapp-backend-dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      MONGODB_URI: mongodb://admin:password123@mongodb:27017/musicapp?authSource=admin
+      REDIS_URL: redis://:redis123@redis:6379
+      JWT_SECRET: dev-jwt-secret-key
+      JWT_REFRESH_SECRET: dev-refresh-jwt-secret-key
+      CLIENT_URL: http://localhost:3000
+    ports:
+      - "5000:5000"
+      - "9229:9229" # Debug port
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - backend_dev_uploads:/app/uploads
+      - backend_dev_logs:/app/logs
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - musicapp-dev-network
+    command: npm run dev
+
+  # Frontend (Development mode with hot reload)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: development
+    container_name: musicapp-frontend-dev
+    restart: unless-stopped
+    environment:
+      REACT_APP_API_URL: http://localhost:5000
+      REACT_APP_SOCKET_URL: http://localhost:5000
+      CHOKIDAR_USEPOLLING: true
+      WATCHPACK_POLLING: true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - musicapp-dev-network
+    command: npm start
+
+volumes:
+  mongodb_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+  backend_dev_uploads:
+    driver: local
+  backend_dev_logs:
+    driver: local
+
+networks:
+  musicapp-dev-network:
+    driver: bridge

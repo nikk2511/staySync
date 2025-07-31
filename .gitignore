@@ -1,0 +1,149 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Logs
+logs/
+*.log
+
+# Build outputs
+build/
+dist/
+.next/
+out/
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Uploads
+backend/uploads/
+uploads/
+
+# Temporary files
+tmp/
+temp/
+
+# Docker
+.dockerignore
+
+# Python (if using Python tools)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# TypeScript
+*.tsbuildinfo
+
+# ESLint cache
+.eslintcache
+
+# Prettier cache
+.prettierignore
+
+# Webpack
+.webpack/
+
+# Parcel
+.cache/
+.parcel-cache
+
+# Jest
+coverage/
+
+# Storybook
+.storybook/
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Windows
+desktop.ini
+
+# Linux
+*~
+
+# Editor directories and files
+.vscode/
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local database files
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+
+# SSL certificates
+*.pem
+*.key
+*.crt
+
+# Compressed files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Application specific
+*.tgz
+.yarn-integrity
+
+# Runtime files
+*.pid
+*.seed
+*.pid.lock
+*.tgz
+.yarn-integrity

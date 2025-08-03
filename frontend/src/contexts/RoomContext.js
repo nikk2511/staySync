@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 import axios from 'axios';
@@ -27,6 +27,10 @@ export const RoomProvider = ({ children }) => {
   const [volume, setVolume] = useState(80);
   const [currentTime, setCurrentTime] = useState(0);
   const [loading, setLoading] = useState(false);
+  
+  // Prevent multiple join attempts
+  const joiningRef = useRef(false);
+  const leavingRef = useRef(false);
 
   // Fetch user's rooms
   const fetchRooms = useCallback(async (type = 'my') => {
@@ -53,6 +57,15 @@ export const RoomProvider = ({ children }) => {
       const newRoom = response.data.room;
       setRooms(prev => [newRoom, ...prev]);
       
+      // Set as current room immediately after creation
+      setCurrentRoom(newRoom);
+      
+      // Join via socket immediately after creation
+      if (socket && isConnected) {
+        console.log(`🔌 Joining newly created room via socket: ${newRoom._id}`);
+        socket.emit('join-room', { roomId: newRoom._id });
+      }
+      
       toast.success('Room created successfully!');
       return { success: true, room: newRoom };
     } catch (error) {
@@ -66,50 +79,117 @@ export const RoomProvider = ({ children }) => {
 
   // Join a room
   const joinRoom = async (roomId, passcode = null) => {
+    if (joiningRef.current) {
+      console.log('🎵 Already attempting to join room, skipping...');
+      return { success: false, error: 'Already joining room' };
+    }
+    
+    if (currentRoom && currentRoom._id === roomId) {
+      console.log('🎵 Already in this room, skipping join...');
+      return { success: true, room: currentRoom };
+    }
+    
     try {
+      joiningRef.current = true;
       setLoading(true);
+      console.log(`🎵 Attempting to join room: ${roomId}`);
+      
+      // Check authentication first
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('❌ No authentication token found');
+        toast.error('Please log in to join rooms');
+        return { success: false, error: 'Authentication required' };
+      }
+      
+      console.log(`🎵 Token found: ${token.substring(0, 20)}...`);
+      
+      // Verify authentication before joining
+      try {
+        const authResponse = await axios.get('/api/auth/me');
+        console.log('🎵 Authentication verified:', authResponse.data.user.name);
+      } catch (authError) {
+        console.error('❌ Authentication failed:', authError);
+        toast.error('Authentication failed. Please log in again.');
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+        return { success: false, error: 'Authentication failed' };
+      }
       
       // First, join via API
+      console.log(`🎵 Making API call to join room: ${roomId}`);
       const response = await axios.post(`/api/rooms/${roomId}/join`, { passcode });
-      
-      // Then join via socket for real-time features
-      if (socket && isConnected) {
-        socket.emit('join-room', { roomId, passcode });
-      }
+      console.log(`✅ API join successful for room: ${roomId}`, response.data);
       
       const room = response.data.room;
       setCurrentRoom(room);
       
+      // Then join via socket for real-time features
+      if (socket && isConnected) {
+        console.log(`🔌 Joining room via socket: ${roomId}`);
+        socket.emit('join-room', { roomId, passcode });
+      } else {
+        console.warn('🔌 Socket not connected, skipping socket join');
+        if (!socket) console.warn('🔌 Socket is null');
+        if (!isConnected) console.warn('🔌 Socket not connected');
+      }
+      
       // Initialize room state
       if (room.currentTrack?.songId) {
         setCurrentTrack(room.currentTrack);
-        setIsPlaying(room.currentTrack.isPlaying);
-        setCurrentTime(room.currentTrack.currentTime);
+        setIsPlaying(room.currentTrack.isPlaying || false);
+        setCurrentTime(room.currentTrack.currentTime || 0);
       }
       
       if (room.queue) {
         setQueue(room.queue);
       }
       
-      if (room.settings?.volume) {
-        setVolume(room.settings.volume);
+      if (room.volume !== undefined) {
+        setVolume(room.volume);
       }
       
+      console.log(`✅ Successfully joined room: ${roomId}`);
       return { success: true, room };
+      
     } catch (error) {
-      const message = error.response?.data?.error || 'Failed to join room';
+      console.error('❌ Failed to join room:', error);
+      console.error('❌ Error response:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
+      console.error('❌ Error message:', error.message);
+      
+      let message = 'Failed to join room';
+      if (error.response?.status === 401) {
+        message = 'Authentication failed. Please log in again.';
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+      } else if (error.response?.status === 403) {
+        message = 'Access denied. You may not have permission to join this room.';
+      } else if (error.response?.status === 404) {
+        message = 'Room not found.';
+      } else if (error.response?.data?.error) {
+        message = error.response.data.error;
+      }
+      
       toast.error(message);
       return { success: false, error: message };
     } finally {
       setLoading(false);
+      joiningRef.current = false;
     }
   };
 
   // Leave current room
   const leaveRoom = async () => {
-    if (!currentRoom) return;
+    if (!currentRoom || leavingRef.current) {
+      console.log('🎵 No room to leave or already leaving, skipping...');
+      return { success: true };
+    }
     
     try {
+      leavingRef.current = true;
+      console.log(`🎵 Leaving room: ${currentRoom._id}`);
+      
       // Leave via API
       await axios.post(`/api/rooms/${currentRoom._id}/leave`);
       
@@ -126,11 +206,15 @@ export const RoomProvider = ({ children }) => {
       setIsPlaying(false);
       setCurrentTime(0);
       
+      console.log(`✅ Successfully left room: ${currentRoom._id}`);
       return { success: true };
     } catch (error) {
       const message = error.response?.data?.error || 'Failed to leave room';
+      console.error('❌ Failed to leave room:', error);
       toast.error(message);
       return { success: false, error: message };
+    } finally {
+      leavingRef.current = false;
     }
   };
 

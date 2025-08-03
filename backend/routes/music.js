@@ -463,9 +463,11 @@ router.post('/rooms/:roomId/queue',
       }
       
       // Check if user is a member
-      const isMember = room.members.some(member => 
-        member.userId.toString() === req.userId.toString()
-      );
+      const isMember = room.members.some(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === req.userId.toString();
+      });
       
       if (!isMember) {
         return res.status(403).json({ 
@@ -474,9 +476,11 @@ router.post('/rooms/:roomId/queue',
       }
       
       // Check room settings
-      const member = room.members.find(member => 
-        member.userId.toString() === req.userId.toString()
-      );
+      const member = room.members.find(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === req.userId.toString();
+      });
       
       if (!room.settings.allowMembersToAddSongs && member.role === 'member') {
         return res.status(403).json({ 
@@ -558,9 +562,11 @@ router.delete('/rooms/:roomId/queue/:songId',
       }
       
       // Check permissions
-      const member = room.members.find(member => 
-        member.userId.toString() === req.userId.toString()
-      );
+      const member = room.members.find(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === req.userId.toString();
+      });
       
       if (!member) {
         return res.status(403).json({ 
@@ -625,9 +631,11 @@ router.put('/rooms/:roomId/queue/reorder',
       }
       
       // Check permissions
-      const member = room.members.find(member => 
-        member.userId.toString() === req.userId.toString()
-      );
+      const member = room.members.find(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === req.userId.toString();
+      });
       
       if (!member || !['host', 'moderator'].includes(member.role)) {
         return res.status(403).json({ 

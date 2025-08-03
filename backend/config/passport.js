@@ -4,56 +4,62 @@ const JwtStrategy = require('passport-jwt').Strategy;
 const ExtractJwt = require('passport-jwt').ExtractJwt;
 const User = require('../models/User');
 
-// Google OAuth Strategy
-passport.use(new GoogleStrategy({
-  clientID: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  callbackURL: "/api/auth/google/callback"
-}, async (accessToken, refreshToken, profile, done) => {
-  try {
-    // Check if user already exists with this Google ID
-    let user = await User.findOne({ googleId: profile.id });
-    
-    if (user) {
-      // Update user info if needed
-      if (user.name !== profile.displayName) {
-        user.name = profile.displayName;
+// Google OAuth Strategy (only if credentials are provided)
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && 
+    process.env.GOOGLE_CLIENT_ID !== 'your-google-client-id' && 
+    process.env.GOOGLE_CLIENT_SECRET !== 'your-google-client-secret') {
+  passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: "/api/auth/google/callback"
+  }, async (accessToken, refreshToken, profile, done) => {
+    try {
+      // Check if user already exists with this Google ID
+      let user = await User.findOne({ googleId: profile.id });
+      
+      if (user) {
+        // Update user info if needed
+        if (user.name !== profile.displayName) {
+          user.name = profile.displayName;
+          await user.save();
+        }
+        return done(null, user);
+      }
+      
+      // Check if user exists with this email
+      user = await User.findOne({ email: profile.emails[0].value });
+      
+      if (user) {
+        // Link Google account to existing user
+        user.googleId = profile.id;
+        if (profile.photos && profile.photos.length > 0) {
+          user.avatar = profile.photos[0].value;
+        }
         await user.save();
+        return done(null, user);
       }
-      return done(null, user);
-    }
-    
-    // Check if user exists with this email
-    user = await User.findOne({ email: profile.emails[0].value });
-    
-    if (user) {
-      // Link Google account to existing user
-      user.googleId = profile.id;
-      if (profile.photos && profile.photos.length > 0) {
-        user.avatar = profile.photos[0].value;
-      }
+      
+      // Create new user
+      user = new User({
+        googleId: profile.id,
+        name: profile.displayName,
+        email: profile.emails[0].value,
+        avatar: profile.photos && profile.photos.length > 0 
+          ? profile.photos[0].value 
+          : `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.displayName)}&background=6366f1&color=fff&size=128`
+      });
+      
       await user.save();
       return done(null, user);
+      
+    } catch (error) {
+      console.error('Google OAuth error:', error);
+      return done(error, null);
     }
-    
-    // Create new user
-    user = new User({
-      googleId: profile.id,
-      name: profile.displayName,
-      email: profile.emails[0].value,
-      avatar: profile.photos && profile.photos.length > 0 
-        ? profile.photos[0].value 
-        : `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.displayName)}&background=6366f1&color=fff&size=128`
-    });
-    
-    await user.save();
-    return done(null, user);
-    
-  } catch (error) {
-    console.error('Google OAuth error:', error);
-    return done(error, null);
-  }
-}));
+  }));
+} else {
+  console.log('⚠️  Google OAuth not configured. Skipping Google OAuth strategy.');
+}
 
 // JWT Strategy
 passport.use(new JwtStrategy({

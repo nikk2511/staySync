@@ -5,6 +5,8 @@ const Song = require('../models/Song');
 
 // Store active connections
 const activeConnections = new Map();
+const joiningUsers = new Set(); // Prevent multiple join attempts
+const leavingUsers = new Set(); // Prevent multiple leave attempts
 
 const socketHandlers = (io, socket) => {
   console.log(`🔌 User ${socket.userId} connected via socket`);
@@ -27,6 +29,23 @@ const socketHandlers = (io, socket) => {
         return;
       }
 
+      // Prevent multiple join attempts
+      const joinKey = `${socket.userId}-${roomId}`;
+      if (joiningUsers.has(joinKey)) {
+        console.log(`🔧 User ${socket.userId} already joining room ${roomId}, skipping...`);
+        return;
+      }
+
+      // Check if already in this room
+      const currentConnection = activeConnections.get(socket.userId);
+      if (currentConnection && currentConnection.currentRoom === roomId) {
+        console.log(`🔧 User ${socket.userId} already in room ${roomId}, skipping join...`);
+        return;
+      }
+
+      joiningUsers.add(joinKey);
+      console.log(`🔧 User ${socket.userId} starting join process for room ${roomId}`);
+
       // Get room and check if user is a member
       const room = await Room.findById(roomId)
         .populate('hostId', 'name avatar')
@@ -38,21 +57,45 @@ const socketHandlers = (io, socket) => {
 
       if (!room || !room.isActive) {
         socket.emit('error', { message: 'Room not found' });
+        joiningUsers.delete(joinKey);
         return;
       }
 
-      const isMember = room.members.some(member => 
-        member.userId.toString() === socket.userId.toString()
-      );
+      const isMember = room.members.some(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === socket.userId.toString();
+      });
+
+      console.log(`🔧 Socket join attempt for room: ${roomId}`);
+      console.log(`🔧 User ID: ${socket.userId}`);
+      console.log(`🔧 Room members:`, room.members.map(m => {
+        const userId = m.userId._id ? m.userId._id.toString() : m.userId.toString();
+        return { userId, role: m.role };
+      }));
+      console.log(`🔧 Is member: ${isMember}`);
 
       if (!isMember) {
         socket.emit('error', { message: 'Access denied. You are not a room member.' });
+        joiningUsers.delete(joinKey);
         return;
       }
 
       // Leave previous room if any
-      if (activeConnections.get(socket.userId)?.currentRoom) {
-        socket.leave(activeConnections.get(socket.userId).currentRoom);
+      const previousRoom = activeConnections.get(socket.userId)?.currentRoom;
+      if (previousRoom && previousRoom !== roomId) {
+        console.log(`🔧 User ${socket.userId} leaving previous room ${previousRoom}`);
+        socket.leave(previousRoom);
+        
+        // Notify previous room members
+        socket.to(previousRoom).emit('user-left', {
+          user: {
+            _id: socket.userId,
+            name: socket.user.name,
+            avatar: socket.user.avatar
+          },
+          message: `${socket.user.name} left the room`
+        });
       }
 
       // Join new room
@@ -87,10 +130,12 @@ const socketHandlers = (io, socket) => {
       });
 
       console.log(`👥 User ${socket.userId} joined room ${roomId}`);
+      joiningUsers.delete(joinKey);
 
     } catch (error) {
-      console.error('Join room error:', error);
+      console.error('🔧 Socket join error:', error);
       socket.emit('error', { message: 'Failed to join room' });
+      joiningUsers.delete(`${socket.userId}-${data.roomId}`);
     }
   });
 
@@ -98,27 +143,54 @@ const socketHandlers = (io, socket) => {
   socket.on('leave-room', async (data) => {
     try {
       const { roomId } = data;
-      const connection = activeConnections.get(socket.userId);
-
-      if (!connection?.currentRoom || connection.currentRoom !== roomId) {
+      
+      if (!roomId) {
+        socket.emit('error', { message: 'Room ID is required' });
         return;
       }
 
-      // Update room member status
-      const room = await Room.findById(roomId);
-      if (room) {
-        room.updateMemberStatus(socket.userId, false);
-        await room.save();
+      // Prevent multiple leave attempts
+      const leaveKey = `${socket.userId}-${roomId}`;
+      if (leavingUsers.has(leaveKey)) {
+        console.log(`🔧 User ${socket.userId} already leaving room ${roomId}, skipping...`);
+        return;
       }
 
-      // Update user status
-      await User.findByIdAndUpdate(socket.userId, {
-        currentRoom: null
-      });
+      leavingUsers.add(leaveKey);
+      console.log(`🔧 User ${socket.userId} leaving room ${roomId}`);
+
+      // Get room
+      const room = await Room.findById(roomId);
+      if (!room) {
+        socket.emit('error', { message: 'Room not found' });
+        leavingUsers.delete(leaveKey);
+        return;
+      }
 
       // Leave socket room
       socket.leave(roomId);
-      connection.currentRoom = null;
+      
+      // Update connection state
+      const connection = activeConnections.get(socket.userId);
+      if (connection) {
+        connection.currentRoom = null;
+      }
+
+      // Update user's online status in room
+      room.updateMemberStatus(socket.userId, false);
+      await room.save();
+
+      // Update user's current room
+      await User.findByIdAndUpdate(socket.userId, {
+        currentRoom: null,
+        isOnline: false,
+        lastSeen: new Date()
+      });
+
+      // Send confirmation to user
+      socket.emit('room-left', {
+        message: 'Successfully left room'
+      });
 
       // Notify other room members
       socket.to(roomId).emit('user-left', {
@@ -130,13 +202,13 @@ const socketHandlers = (io, socket) => {
         message: `${socket.user.name} left the room`
       });
 
-      socket.emit('room-left', { message: 'Successfully left room' });
-
       console.log(`👥 User ${socket.userId} left room ${roomId}`);
+      leavingUsers.delete(leaveKey);
 
     } catch (error) {
-      console.error('Leave room error:', error);
+      console.error('🔧 Socket leave error:', error);
       socket.emit('error', { message: 'Failed to leave room' });
+      leavingUsers.delete(`${socket.userId}-${data.roomId}`);
     }
   });
 
@@ -388,9 +460,11 @@ const handleMusicControl = async (socket, roomId, action, data = {}) => {
   }
 
   // Check if user has permission to control music
-  const member = room.members.find(member => 
-    member.userId.toString() === socket.userId.toString()
-  );
+  const member = room.members.find(member => {
+    // Handle both populated and unpopulated userId
+    const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+    return memberUserId === socket.userId.toString();
+  });
 
   if (!member) {
     socket.emit('error', { message: 'Access denied' });

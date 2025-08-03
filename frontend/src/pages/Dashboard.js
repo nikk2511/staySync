@@ -1,27 +1,63 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useRoom } from '../contexts/RoomContext';
 import SongSearchBar from '../components/music/SongSearchBar';
 import { useMusicSearch } from '../hooks/useMusicSearch';
 import SimpleAudioTest from '../components/ui/SimpleAudioTest';
 import ManualAudioPlayer from '../components/ui/ManualAudioPlayer';
 import CreateRoomModal from '../components/modals/CreateRoomModal';
 import RealAudioPlayer from '../components/music/RealAudioPlayer';
+import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { 
   MusicalNoteIcon, 
   PlusIcon, 
   PlayIcon,
   ClockIcon,
   MagnifyingGlassIcon,
-  XMarkIcon
+  XMarkIcon,
+  UserGroupIcon,
+  TrashIcon,
+  ArrowRightIcon,
+  CalendarIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 const Dashboard = () => {
   const { user, isAuthenticated } = useAuth();
   const { searchResults } = useMusicSearch(); // loading temporarily unused
+  const { 
+    rooms, 
+    fetchRooms, 
+    loading: roomsLoading,
+    createRoom,
+    joinRoom,
+    leaveRoom
+  } = useRoom();
   const [showMusicDiscovery, setShowMusicDiscovery] = useState(false);
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false);
   const [currentlyPlayingSong, setCurrentlyPlayingSong] = useState(null);
+  const [showMyRooms, setShowMyRooms] = useState(false);
+  const [showJoinRoomModal, setShowJoinRoomModal] = useState(false);
+  const [joinRoomId, setJoinRoomId] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [roomToDelete, setRoomToDelete] = useState(null);
+
+  // Check authentication on component mount
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token && isAuthenticated === false) {
+      console.log('🔐 No authentication token found, redirecting to login');
+      window.location.href = '/login';
+      return;
+    }
+  }, [isAuthenticated]);
+
+  // Fetch user's rooms on component mount
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      fetchRooms('my');
+    }
+  }, [isAuthenticated, user, fetchRooms]);
 
   const handleSongSelect = (song) => {
     // Actually play the song instead of just showing a toast
@@ -39,11 +75,264 @@ const Dashboard = () => {
     setShowCreateRoomModal(true);
   };
 
+  const handleJoinRoom = async (roomId) => {
+    try {
+      console.log('🎵 Attempting to join room:', roomId);
+      const result = await joinRoom(roomId);
+      console.log('🎵 Join room result:', result);
+      
+      if (result.success) {
+        toast.success('Joined room successfully!');
+        // Navigate to the room
+        window.location.href = `/room/${roomId}`;
+      } else {
+        toast.error(result.error || 'Failed to join room');
+      }
+    } catch (error) {
+      console.error('Join room error:', error);
+      toast.error('Failed to join room');
+    }
+  };
+
+  const handleJoinRoomById = async () => {
+    if (!joinRoomId.trim()) {
+      toast.error('Please enter a room ID');
+      return;
+    }
+
+    try {
+      console.log('🎵 Attempting to join room by ID:', joinRoomId.trim());
+      const result = await joinRoom(joinRoomId.trim());
+      console.log('🎵 Join room by ID result:', result);
+      
+      if (result.success) {
+        toast.success('Joined room successfully!');
+        setJoinRoomId('');
+        setShowJoinRoomModal(false);
+        // Navigate to the room
+        window.location.href = `/room/${joinRoomId.trim()}`;
+      } else {
+        toast.error(result.error || 'Failed to join room');
+      }
+    } catch (error) {
+      console.error('Join room by ID error:', error);
+      toast.error('Failed to join room');
+    }
+  };
+
+  const handleDeleteRoomClick = (roomId) => {
+    console.log('🗑️ Attempting to delete room:', roomId);
+    setRoomToDelete(roomId);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteRoom = async () => {
+    if (!roomToDelete) return;
+
+    try {
+      console.log('🗑️ === STARTING ROOM DELETE TEST ===');
+      
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Authentication required');
+        return;
+      }
+
+      console.log('🗑️ Deleting room:', roomToDelete);
+      console.log('🗑️ Using token:', token.substring(0, 20) + '...');
+
+      // Step 1: Verify authentication
+      console.log('🗑️ Step 1 - Verifying authentication');
+      try {
+        const authResponse = await fetch('/api/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!authResponse.ok) {
+          console.error('🗑️ ❌ Authentication failed');
+          toast.error('Authentication failed. Please log in again.');
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+          return;
+        }
+        
+        const authData = await authResponse.json();
+        console.log('🗑️ ✅ Authentication verified:', authData.user.name);
+      } catch (authError) {
+        console.error('🗑️ ❌ Auth verification error:', authError);
+        toast.error('Authentication verification failed');
+        return;
+      }
+
+      // Step 2: Delete the room
+      console.log('🗑️ Step 2 - Deleting room');
+      const response = await fetch(`/api/rooms/${roomToDelete}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      console.log('🗑️ Delete response status:', response.status);
+      console.log('🗑️ Delete response headers:', response.headers);
+
+      if (response.ok) {
+        const responseData = await response.json();
+        console.log('🗑️ ✅ Delete response data:', responseData);
+        toast.success('Room deleted successfully!');
+        console.log('🗑️ === ROOM DELETE SUCCESSFUL ===');
+        // Refresh the rooms list
+        fetchRooms('my');
+      } else {
+        const errorData = await response.json();
+        console.error('🗑️ ❌ Delete room error response:', errorData);
+        
+        let errorMessage = 'Failed to delete room';
+        if (response.status === 401) {
+          errorMessage = 'Authentication failed. Please log in again.';
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        } else if (response.status === 403) {
+          errorMessage = 'Access denied. Only room host can delete rooms.';
+        } else if (response.status === 404) {
+          errorMessage = 'Room not found.';
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+        
+        toast.error(errorMessage);
+        console.log('🗑️ === ROOM DELETE FAILED ===');
+      }
+    } catch (error) {
+      console.error('🗑️ ❌ Delete room error:', error);
+      toast.error('Failed to delete room');
+      console.log('🗑️ === ROOM DELETE ERROR ===');
+    } finally {
+      setShowDeleteConfirm(false);
+      setRoomToDelete(null);
+    }
+  };
+
+  // Test function to debug API calls
+  const testAPICall = async () => {
+    try {
+      console.log('🔍 === STARTING COMPREHENSIVE API TEST ===');
+      
+      // Step 1: Check authentication
+      const token = localStorage.getItem('token');
+      console.log('🔍 Step 1 - Token check:', token ? 'Present' : 'Missing');
+      console.log('🔍 Token preview:', token ? token.substring(0, 50) + '...' : 'No token');
+      
+      if (!token) {
+        toast.error('No authentication token found. Please log in first.');
+        console.log('🔍 ❌ Test failed: No token found');
+        return;
+      }
+
+      // Step 2: Test authentication endpoint
+      console.log('🔍 Step 2 - Testing /api/auth/me');
+      try {
+        const authResponse = await fetch('/api/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        console.log('🔍 Auth response status:', authResponse.status);
+        
+        if (authResponse.ok) {
+          const authData = await authResponse.json();
+          console.log('🔍 ✅ Auth successful:', authData.user.name);
+        } else {
+          const authError = await authResponse.json();
+          console.error('🔍 ❌ Auth failed:', authError);
+          toast.error('Authentication failed. Please log in again.');
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+          return;
+        }
+      } catch (authError) {
+        console.error('🔍 ❌ Auth test error:', authError);
+        toast.error('Authentication test failed');
+        return;
+      }
+
+      // Step 3: Test getting user's rooms
+      console.log('🔍 Step 3 - Testing /api/rooms?type=my');
+      const response = await fetch('/api/rooms?type=my', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      console.log('🔍 Rooms response status:', response.status);
+      console.log('🔍 Rooms response headers:', response.headers);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('🔍 ✅ Rooms test successful:', data);
+        console.log('🔍 Found rooms:', data.rooms.length);
+        toast.success(`✅ API Test Successful! Found ${data.rooms.length} rooms`);
+        
+        // Step 4: Test room operations if rooms exist
+        if (data.rooms.length > 0) {
+          console.log('🔍 Step 4 - Testing room operations');
+          const testRoom = data.rooms[0];
+          console.log('🔍 Test room:', testRoom._id, testRoom.name);
+          
+          // Test join room
+          console.log('🔍 Testing join room...');
+          try {
+            const joinResponse = await fetch(`/api/rooms/${testRoom._id}/join`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({}),
+            });
+            
+            console.log('🔍 Join response status:', joinResponse.status);
+            if (joinResponse.ok) {
+              console.log('🔍 ✅ Join room test successful');
+            } else {
+              const joinError = await joinResponse.json();
+              console.log('🔍 ⚠️ Join room test:', joinError);
+            }
+          } catch (joinError) {
+            console.error('🔍 ❌ Join room test error:', joinError);
+          }
+        }
+      } else {
+        const errorData = await response.json();
+        console.error('🔍 ❌ Rooms test failed:', errorData);
+        toast.error(errorData.error || 'API test failed');
+      }
+      
+      console.log('🔍 === API TEST COMPLETED ===');
+    } catch (error) {
+      console.error('🔍 ❌ Test error:', error);
+      toast.error('API test failed');
+    }
+  };
+
   // Format duration
   const formatDuration = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Format date
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString();
   };
 
   return (
@@ -71,6 +360,126 @@ const Dashboard = () => {
                 Sign up
               </a> to create rooms and listen with friends.
             </p>
+          </div>
+        )}
+
+        {/* My Rooms Section - Only show for authenticated users */}
+        {isAuthenticated && (
+          <div className="mb-8">
+            <div className="card dark:card-dark p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-dark-text">
+                  My Rooms ({rooms.length}/5)
+                </h2>
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => setShowMyRooms(!showMyRooms)}
+                    className="btn-outline flex items-center"
+                  >
+                    <UserGroupIcon className="w-4 h-4 mr-2" />
+                    {showMyRooms ? 'Hide Rooms' : 'Show My Rooms'}
+                  </button>
+                  <button 
+                    onClick={handleCreateRoom}
+                    className="btn-primary flex items-center"
+                    disabled={rooms.length >= 5}
+                  >
+                    <PlusIcon className="w-4 h-4 mr-2" />
+                    Create Room
+                  </button>
+                </div>
+              </div>
+
+              {rooms.length >= 5 && (
+                <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                  <p className="text-yellow-800 dark:text-yellow-200 text-sm">
+                    ⚠️ <strong>Room Limit Reached:</strong> You have created the maximum of 5 rooms. 
+                    Delete some rooms below to create new ones.
+                  </p>
+                </div>
+              )}
+
+              {showMyRooms && (
+                <div className="space-y-4">
+                  {roomsLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <LoadingSpinner size="md" />
+                    </div>
+                  ) : rooms.length > 0 ? (
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      {rooms.map((room) => (
+                        <div key={room._id} className="bg-gray-50 dark:bg-dark-border rounded-lg p-4 border border-gray-200 dark:border-dark-border">
+                          <div className="flex items-start justify-between mb-3">
+                            <h3 className="font-semibold text-gray-900 dark:text-dark-text truncate">
+                              {room.name}
+                            </h3>
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => handleJoinRoom(room._id)}
+                                className="p-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                title="Join Room"
+                              >
+                                <ArrowRightIcon className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteRoomClick(room._id)}
+                                className="p-1 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                                title="Delete Room"
+                              >
+                                <TrashIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-2 text-sm text-gray-600 dark:text-dark-muted">
+                            <div className="flex items-center justify-between">
+                              <span>Members:</span>
+                              <span className="font-medium">{room.memberCount || 0}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Queue:</span>
+                              <span className="font-medium">{room.queue?.length || 0} songs</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Created:</span>
+                              <span className="font-medium">{formatDate(room.createdAt)}</span>
+                            </div>
+                            {room.isPrivate && (
+                              <div className="flex items-center justify-between">
+                                <span>Type:</span>
+                                <span className="font-medium text-orange-600 dark:text-orange-400">Private</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-dark-border">
+                            <button
+                              onClick={() => handleJoinRoom(room._id)}
+                              className="w-full btn-primary text-sm"
+                            >
+                              Join Room
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <UserGroupIcon className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+                      <p className="text-gray-600 dark:text-dark-muted mb-4">
+                        You haven't created any rooms yet.
+                      </p>
+                      <button
+                        onClick={handleCreateRoom}
+                        className="btn-primary"
+                      >
+                        Create Your First Room
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
         
@@ -221,11 +630,25 @@ const Dashboard = () => {
                 <button 
                   onClick={handleCreateRoom}
                   className="btn-primary w-full flex items-center justify-center"
+                  disabled={isAuthenticated && rooms.length >= 5}
                 >
                   <PlusIcon className="w-4 h-4 mr-2" />
                   Create Room
                 </button>
-                <button className="btn-outline w-full">Join Room</button>
+                <button 
+                  onClick={() => setShowJoinRoomModal(true)}
+                  className="btn-outline w-full flex items-center justify-center"
+                >
+                  <ArrowRightIcon className="w-4 h-4 mr-2" />
+                  Join Room
+                </button>
+                <button 
+                  onClick={testAPICall}
+                  className="btn-outline w-full flex items-center justify-center text-sm"
+                >
+                  <MagnifyingGlassIcon className="w-4 h-4 mr-2" />
+                  Test API
+                </button>
               </div>
             </div>
             
@@ -326,6 +749,107 @@ const Dashboard = () => {
         isOpen={showCreateRoomModal}
         onClose={() => setShowCreateRoomModal(false)}
       />
+
+      {/* Join Room Modal */}
+      {showJoinRoomModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-dark-card rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-dark-text">
+                Join Room
+              </h3>
+              <button
+                onClick={() => {
+                  setShowJoinRoomModal(false);
+                  setJoinRoomId('');
+                }}
+                className="text-gray-500 hover:text-gray-700 dark:text-dark-muted dark:hover:text-dark-text"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-muted mb-2">
+                  Room ID
+                </label>
+                <input
+                  type="text"
+                  value={joinRoomId}
+                  onChange={(e) => setJoinRoomId(e.target.value)}
+                  placeholder="Enter room ID (e.g., 688f3bbd5c1355eeea402b36)"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-dark-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-dark-bg dark:text-dark-text"
+                />
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleJoinRoomById}
+                  className="flex-1 btn-primary"
+                >
+                  Join Room
+                </button>
+                <button
+                  onClick={() => {
+                    setShowJoinRoomModal(false);
+                    setJoinRoomId('');
+                  }}
+                  className="flex-1 btn-outline"
+                >
+                  Cancel
+                </button>
+              </div>
+              
+              <div className="text-xs text-gray-500 dark:text-dark-muted">
+                <p>💡 <strong>Tip:</strong> You can find room IDs in the URL when you're in a room, or ask the room host for the ID.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Room Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-dark-card rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-dark-text">
+                Confirm Deletion
+              </h3>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setRoomToDelete(null);
+                }}
+                className="text-gray-500 hover:text-gray-700 dark:text-dark-muted dark:hover:text-dark-text"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-gray-700 dark:text-dark-text mb-4">
+              Are you sure you want to delete room "{rooms.find(room => room._id === roomToDelete)?.name}"? This action cannot be undone.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={handleDeleteRoom}
+                className="flex-1 btn-danger"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setRoomToDelete(null);
+                }}
+                className="flex-1 btn-outline"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

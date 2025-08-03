@@ -15,36 +15,46 @@ export const useSocket = () => {
 
 export const SocketProvider = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
-  const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [currentRoom, setCurrentRoom] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState([]);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
+  const socketRef = useRef(null);
+  const isConnectingRef = useRef(false);
 
   // Initialize socket connection
   useEffect(() => {
-    if (isAuthenticated && user) {
+    // Only create socket if authenticated and no existing socket
+    if (isAuthenticated && user && !socketRef.current && !isConnectingRef.current) {
       const token = localStorage.getItem('token');
       if (!token) return;
 
+      isConnectingRef.current = true;
       const socketUrl = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000';
+      
+      console.log('🔌 Initializing socket connection...');
       
       const newSocket = io(socketUrl, {
         auth: {
           token,
         },
         transports: ['websocket', 'polling'],
-        forceNew: true,
+        forceNew: false, // Changed to false to prevent multiple connections
+        timeout: 10000,
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
       });
 
       // Connection events
       newSocket.on('connect', () => {
-        console.log('🔌 Connected to server');
+        console.log('🔌 Connected to server successfully');
         setIsConnected(true);
         reconnectAttempts.current = 0;
-        setSocket(newSocket);
+        socketRef.current = newSocket;
+        isConnectingRef.current = false;
       });
 
       newSocket.on('disconnect', (reason) => {
@@ -53,11 +63,13 @@ export const SocketProvider = ({ children }) => {
         setCurrentRoom(null);
         setOnlineUsers([]);
         setTypingUsers([]);
+        isConnectingRef.current = false;
       });
 
       newSocket.on('connect_error', (error) => {
         console.error('🔌 Connection error:', error);
         setIsConnected(false);
+        isConnectingRef.current = false;
         
         if (reconnectAttempts.current < maxReconnectAttempts) {
           reconnectAttempts.current++;
@@ -70,213 +82,210 @@ export const SocketProvider = ({ children }) => {
       // Error handling
       newSocket.on('error', (error) => {
         console.error('🔌 Socket error:', error);
-        toast.error(error.message || 'An error occurred');
+        toast.error(error.message || 'Socket connection error');
+      });
+
+      // Room join error handling
+      newSocket.on('room-join-error', (error) => {
+        console.error('🔌 Room join error:', error);
+        toast.error(error.message || 'Failed to join room via socket');
       });
 
       // Room events
       newSocket.on('room-joined', (data) => {
+        console.log('🔌 Room joined via socket:', data);
         setCurrentRoom(data.room);
-        toast.success(data.message || 'Joined room successfully');
+        // Don't show toast for every join to avoid spam
       });
 
       newSocket.on('room-left', (data) => {
+        console.log('🔌 Room left via socket:', data);
         setCurrentRoom(null);
         setOnlineUsers([]);
         setTypingUsers([]);
-        toast.success(data.message || 'Left room successfully');
+        // Don't show toast for every leave to avoid spam
       });
 
       newSocket.on('user-joined', (data) => {
+        console.log('🔌 User joined room:', data);
         toast.success(`${data.user.name} joined the room`);
         // Update online users list if available
         setOnlineUsers(prev => [...prev.filter(u => u._id !== data.user._id), data.user]);
       });
 
       newSocket.on('user-left', (data) => {
-        toast(`${data.user.name} left the room`);
+        console.log('🔌 User left room:', data);
+        toast.info(`${data.user.name} left the room`);
         setOnlineUsers(prev => prev.filter(u => u._id !== data.user._id));
       });
 
-      // Typing indicators
-      newSocket.on('user-typing', (data) => {
-        setTypingUsers(prev => {
-          if (data.isTyping) {
-            return [...prev.filter(u => u.userId !== data.userId), {
-              userId: data.userId,
-              userName: data.userName,
-              timestamp: Date.now()
-            }];
-          } else {
-            return prev.filter(u => u.userId !== data.userId);
-          }
-        });
+      // Music events
+      newSocket.on('music-play', (data) => {
+        console.log('🔌 Music play event:', data);
+        // Handle music play event
       });
 
-      return () => {
-        newSocket.close();
-      };
-    } else {
-      // Clean up when not authenticated
-      if (socket) {
-        socket.close();
-        setSocket(null);
+      newSocket.on('music-pause', (data) => {
+        console.log('🔌 Music pause event:', data);
+        // Handle music pause event
+      });
+
+      newSocket.on('music-next', (data) => {
+        console.log('🔌 Music next event:', data);
+        // Handle music next event
+      });
+
+      newSocket.on('queue-updated', (data) => {
+        console.log('🔌 Queue updated:', data);
+        // Handle queue update event
+      });
+
+      // Chat events
+      newSocket.on('message-received', (data) => {
+        console.log('🔌 Message received:', data);
+        // Handle new message event
+      });
+
+      newSocket.on('typing-start', (data) => {
+        console.log('🔌 Typing start:', data);
+        setTypingUsers(prev => [...prev.filter(u => u._id !== data.user._id), data.user]);
+      });
+
+      newSocket.on('typing-stop', (data) => {
+        console.log('🔌 Typing stop:', data);
+        setTypingUsers(prev => prev.filter(u => u._id !== data.user._id));
+      });
+
+    } else if (!isAuthenticated || !user) {
+      // Clean up socket when user logs out
+      if (socketRef.current) {
+        console.log('🔌 Cleaning up socket connection...');
+        socketRef.current.disconnect();
+        socketRef.current = null;
+        setIsConnected(false);
+        setCurrentRoom(null);
+        setOnlineUsers([]);
+        setTypingUsers([]);
+        isConnectingRef.current = false;
       }
-      setIsConnected(false);
-      setCurrentRoom(null);
-      setOnlineUsers([]);
-      setTypingUsers([]);
     }
-  }, [isAuthenticated, user, socket]);
 
-  // Clean up typing indicators after timeout
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now();
-      setTypingUsers(prev => prev.filter(user => now - user.timestamp < 3000));
-    }, 1000);
+    // Cleanup function - only run on unmount
+    return () => {
+      if (socketRef.current) {
+        console.log('🔌 Cleaning up socket on unmount...');
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, [isAuthenticated, user?._id]); // Only depend on authentication status and user ID
 
-    return () => clearInterval(interval);
-  }, []);
-
-  // Socket helper functions
+  // Socket functions
   const joinRoom = (roomId, passcode = null) => {
-    if (!socket) {
-      toast.error('Not connected to server');
+    if (!socketRef.current || !isConnected) {
+      console.warn('🔌 Cannot join room: socket not connected');
       return;
     }
-
-    socket.emit('join-room', { roomId, passcode });
+    console.log(`🔌 Joining room via socket: ${roomId}`);
+    socketRef.current.emit('join-room', { roomId, passcode });
   };
 
   const leaveRoom = (roomId) => {
-    if (!socket) return;
-    
-    socket.emit('leave-room', { roomId });
+    if (!socketRef.current || !isConnected) {
+      console.warn('🔌 Cannot leave room: socket not connected');
+      return;
+    }
+    console.log(`🔌 Leaving room via socket: ${roomId}`);
+    socketRef.current.emit('leave-room', { roomId });
   };
 
   const sendMessage = (roomId, content, options = {}) => {
-    if (!socket) {
-      toast.error('Not connected to server');
+    if (!socketRef.current || !isConnected) {
+      console.warn('🔌 Cannot send message: socket not connected');
       return;
     }
-
-    socket.emit('send-message', {
-      roomId,
-      content,
-      messageType: options.messageType || 'text',
-      replyTo: options.replyTo,
-      mentions: options.mentions,
-    });
+    socketRef.current.emit('send-message', { roomId, content, ...options });
   };
 
   const startTyping = (roomId) => {
-    if (!socket) return;
-    
-    socket.emit('typing-start', { roomId });
+    if (!socketRef.current || !isConnected) return;
+    socketRef.current.emit('typing-start', { roomId });
   };
 
   const stopTyping = (roomId) => {
-    if (!socket) return;
-    
-    socket.emit('typing-stop', { roomId });
+    if (!socketRef.current || !isConnected) return;
+    socketRef.current.emit('typing-stop', { roomId });
   };
 
   const playMusic = (roomId, songId, currentTime = 0) => {
-    if (!socket) {
-      toast.error('Not connected to server');
+    if (!socketRef.current || !isConnected) {
+      console.warn('🔌 Cannot play music: socket not connected');
       return;
     }
-
-    socket.emit('music-play', { roomId, songId, currentTime });
+    console.log(`🔌 Playing music: ${songId} at time ${currentTime}`);
+    socketRef.current.emit('play-music', { roomId, songId, currentTime });
   };
 
   const pauseMusic = (roomId, currentTime = 0) => {
-    if (!socket) {
-      toast.error('Not connected to server');
+    if (!socketRef.current || !isConnected) {
+      console.warn('🔌 Cannot pause music: socket not connected');
       return;
     }
-
-    socket.emit('music-pause', { roomId, currentTime });
+    console.log(`🔌 Pausing music at time ${currentTime}`);
+    socketRef.current.emit('pause-music', { roomId, currentTime });
   };
 
   const seekMusic = (roomId, currentTime) => {
-    if (!socket) {
-      toast.error('Not connected to server');
-      return;
-    }
-
-    socket.emit('music-seek', { roomId, currentTime });
+    if (!socketRef.current || !isConnected) return;
+    socketRef.current.emit('seek-music', { roomId, currentTime });
   };
 
   const nextMusic = (roomId) => {
-    if (!socket) {
-      toast.error('Not connected to server');
+    if (!socketRef.current || !isConnected) {
+      console.warn('🔌 Cannot skip music: socket not connected');
       return;
     }
-
-    socket.emit('music-next', { roomId });
+    console.log(`🔌 Skipping to next song`);
+    socketRef.current.emit('next-music', { roomId });
   };
 
   const changeVolume = (roomId, volume) => {
-    if (!socket) {
-      toast.error('Not connected to server');
-      return;
-    }
-
-    socket.emit('music-volume', { roomId, volume });
+    if (!socketRef.current || !isConnected) return;
+    socketRef.current.emit('change-volume', { roomId, volume });
   };
 
   const addReaction = (messageId, emoji) => {
-    if (!socket) {
-      toast.error('Not connected to server');
-      return;
-    }
-
-    socket.emit('add-reaction', { messageId, emoji });
+    if (!socketRef.current || !isConnected) return;
+    socketRef.current.emit('add-reaction', { messageId, emoji });
   };
 
-  // Event listeners manager
   const addEventListener = (event, callback) => {
-    if (!socket) return () => {};
-    
-    socket.on(event, callback);
-    
-    return () => {
-      socket.off(event, callback);
-    };
+    if (!socketRef.current) return;
+    socketRef.current.on(event, callback);
   };
 
   const removeEventListener = (event, callback) => {
-    if (!socket) return;
-    
-    socket.off(event, callback);
+    if (!socketRef.current) return;
+    socketRef.current.off(event, callback);
   };
 
   const value = {
-    socket,
+    socket: socketRef.current,
     isConnected,
     currentRoom,
     onlineUsers,
     typingUsers,
-    
-    // Room functions
     joinRoom,
     leaveRoom,
-    
-    // Chat functions
     sendMessage,
     startTyping,
     stopTyping,
-    addReaction,
-    
-    // Music functions
     playMusic,
     pauseMusic,
     seekMusic,
     nextMusic,
     changeVolume,
-    
-    // Event management
+    addReaction,
     addEventListener,
     removeEventListener,
   };

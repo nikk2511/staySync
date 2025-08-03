@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
+import toast from 'react-hot-toast';
 
 const Signup = () => {
   const { signup, isAuthenticated } = useAuth();
@@ -24,7 +25,24 @@ const Signup = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Basic validation
+    if (!formData.name.trim()) {
+      toast.error('Name is required');
+      return;
+    }
+    
+    if (!formData.email.trim()) {
+      toast.error('Email is required');
+      return;
+    }
+    
+    if (formData.password.length < 6) {
+      toast.error('Password must be at least 6 characters long');
+      return;
+    }
+    
     if (formData.password !== formData.confirmPassword) {
+      toast.error('Passwords do not match');
       return;
     }
     
@@ -71,7 +89,7 @@ const Signup = () => {
               type="text"
               required
               className="input-field"
-              placeholder="Full name"
+              placeholder="Full name (at least 2 characters)"
               value={formData.name}
               onChange={handleChange}
             />
@@ -89,7 +107,7 @@ const Signup = () => {
               type="password"
               required
               className="input-field"
-              placeholder="Password"
+              placeholder="Password (at least 6 characters)"
               value={formData.password}
               onChange={handleChange}
             />

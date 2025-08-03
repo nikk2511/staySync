@@ -147,9 +147,11 @@ const requireRoomMember = (req, res, next) => {
     return res.status(400).json({ error: 'Room not found in request.' });
   }
   
-  const isMember = req.room.members.some(member => 
-    member.userId.toString() === req.userId.toString()
-  );
+  const isMember = req.room.members.some(member => {
+    // Handle both populated and unpopulated userId
+    const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+    return memberUserId === req.userId.toString();
+  });
   
   if (!isMember) {
     return res.status(403).json({ 
@@ -166,9 +168,11 @@ const requireRoomModerator = (req, res, next) => {
     return res.status(400).json({ error: 'Room not found in request.' });
   }
   
-  const member = req.room.members.find(member => 
-    member.userId.toString() === req.userId.toString()
-  );
+  const member = req.room.members.find(member => {
+    // Handle both populated and unpopulated userId
+    const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+    return memberUserId === req.userId.toString();
+  });
   
   if (!member || !['host', 'moderator'].includes(member.role)) {
     return res.status(403).json({ 

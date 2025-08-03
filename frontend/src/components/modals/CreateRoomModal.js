@@ -37,9 +37,17 @@ const CreateRoomModal = ({ isOpen, onClose }) => {
 
       if (result.success) {
         onClose();
+        // Reset form
+        setFormData({
+          name: '',
+          description: '',
+          maxMembers: 10,
+          isPrivate: false,
+          passcode: ''
+        });
         // Navigate to the new room
         navigate(`/room/${result.room._id}`);
-        toast.success(`🎵 Room "${result.room.name}" created! Redirecting...`);
+        toast.success(`🎵 Room "${result.room.name}" created! Joining room...`);
       }
     } catch (error) {
       toast.error('Failed to create room');

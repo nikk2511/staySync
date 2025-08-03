@@ -147,9 +147,11 @@ router.post('/suggest-reply/:roomId',
         return res.status(404).json({ error: 'Room not found' });
       }
       
-      const isMember = room.members.some(member => 
-        member.userId.toString() === req.userId.toString()
-      );
+      const isMember = room.members.some(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === req.userId.toString();
+      });
       
       if (!isMember) {
         return res.status(403).json({ 
@@ -236,9 +238,11 @@ router.post('/music-recommendation/:roomId',
         return res.status(404).json({ error: 'Room not found' });
       }
       
-      const isMember = room.members.some(member => 
-        member.userId.toString() === req.userId.toString()
-      );
+      const isMember = room.members.some(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === req.userId.toString();
+      });
       
       if (!isMember) {
         return res.status(403).json({ 

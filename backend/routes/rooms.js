@@ -170,6 +170,10 @@ router.post('/',
       
       await room.save();
       
+      // Debug: Log the room members after creation
+      console.log(`🔧 Room created: ${room._id}`);
+      console.log(`🔧 Room members:`, room.members.map(m => ({ userId: m.userId, role: m.role })));
+      
       // Update user's room list and stats
       await User.findByIdAndUpdate(req.userId, {
         $addToSet: { rooms: room._id },
@@ -227,9 +231,11 @@ router.post('/:roomId/join',
       const room = req.room;
       
       // Check if user is already a member
-      const existingMember = room.members.find(member => 
-        member.userId.toString() === req.userId.toString()
-      );
+      const existingMember = room.members.find(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === req.userId.toString();
+      });
       
       if (existingMember) {
         // Update member status to online
@@ -314,9 +320,11 @@ router.post('/:roomId/leave',
       // Check if user is the host
       if (room.hostId.toString() === req.userId.toString()) {
         // Transfer host to another member or delete room if no members
-        const otherMembers = room.members.filter(member => 
-          member.userId.toString() !== req.userId.toString()
-        );
+        const otherMembers = room.members.filter(member => {
+          // Handle both populated and unpopulated userId
+          const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+          return memberUserId !== req.userId.toString();
+        });
         
         if (otherMembers.length > 0) {
           // Transfer host to the oldest member
@@ -477,9 +485,11 @@ router.put('/:roomId/members/:userId/role',
       const { userId } = req.params;
       const room = req.room;
       
-      const member = room.members.find(member => 
-        member.userId.toString() === userId
-      );
+      const member = room.members.find(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === userId;
+      });
       
       if (!member) {
         return res.status(404).json({ error: 'Member not found' });
@@ -522,9 +532,11 @@ router.delete('/:roomId/members/:userId',
         return res.status(400).json({ error: 'Cannot kick yourself' });
       }
       
-      const member = room.members.find(member => 
-        member.userId.toString() === userId
-      );
+      const member = room.members.find(member => {
+        // Handle both populated and unpopulated userId
+        const memberUserId = member.userId._id ? member.userId._id.toString() : member.userId.toString();
+        return memberUserId === userId;
+      });
       
       if (!member) {
         return res.status(404).json({ error: 'Member not found' });

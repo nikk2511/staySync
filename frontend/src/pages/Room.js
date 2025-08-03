@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useRoom } from '../contexts/RoomContext';
 import { useSocket } from '../contexts/SocketContext';
@@ -47,22 +47,58 @@ const Room = () => {
   
   const [showSearch, setShowSearch] = useState(false);
   const [localVolume, setLocalVolume] = useState(volume);
+  const [hasJoined, setHasJoined] = useState(false);
+  const joinAttemptRef = useRef(false);
 
   // Join room on component mount
   useEffect(() => {
-    if (roomId && user && !currentRoom) {
-      joinRoom(roomId);
+    if (roomId && user && !currentRoom && !hasJoined && !joinAttemptRef.current) {
+      joinAttemptRef.current = true;
+      console.log(`🎵 Room component: Attempting to join room ${roomId}`);
+      
+      // Add a small delay to ensure room creation is fully processed
+      const timer = setTimeout(async () => {
+        try {
+          await joinRoom(roomId);
+          setHasJoined(true);
+        } catch (error) {
+          console.error('Failed to join room:', error);
+          joinAttemptRef.current = false;
+        }
+      }, 1000);
+      
+      return () => {
+        clearTimeout(timer);
+        joinAttemptRef.current = false;
+      };
     }
-  }, [roomId, user, currentRoom, joinRoom]);
+  }, [roomId, user, currentRoom, hasJoined, joinRoom]);
+
+  // Reset join state when room changes
+  useEffect(() => {
+    if (currentRoom && currentRoom._id === roomId) {
+      setHasJoined(true);
+    } else {
+      setHasJoined(false);
+      joinAttemptRef.current = false;
+    }
+  }, [currentRoom, roomId]);
 
   // Leave room on unmount
   useEffect(() => {
+    const currentRoomId = roomId;
+    const currentRoomData = currentRoom;
+    
     return () => {
-      if (currentRoom) {
-        leaveRoom();
+      if (currentRoomData && currentRoomData._id === currentRoomId) {
+        console.log(`🎵 Room component: Leaving room ${currentRoomId} on unmount`);
+        // Call leaveRoom without awaiting in cleanup
+        leaveRoom().catch(error => {
+          console.error('Error leaving room on unmount:', error);
+        });
       }
     };
-  }, [currentRoom, leaveRoom]);
+  }, [currentRoom, roomId, leaveRoom]);
 
   // Update local volume when room volume changes
   useEffect(() => {
